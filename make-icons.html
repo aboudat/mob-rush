@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Mob Rush Icon Generator</title>
+<style>
+body{margin:0;padding:24px;background:#222;color:#fff;font-family:system-ui,sans-serif}
+button{padding:12px 24px;font-size:16px;margin:6px;cursor:pointer;border:0;border-radius:8px;background:#ffd54f;color:#111;font-weight:bold}
+canvas{background:#fff;margin:10px;border:2px solid #444}
+h2{margin-top:24px}
+</style></head>
+<body>
+<h1>Mob Rush — Icon Generator</h1>
+<p>Click each button to download the PNG. Save both files into the <b>tank-game/</b> folder.</p>
+<p><button onclick="download(192)">Download icon-192.png</button>
+   <button onclick="download(512)">Download icon-512.png</button></p>
+<h2>Preview</h2>
+<canvas id="c" width="512" height="512"></canvas>
+
+<script>
+function drawIcon(ctx, size) {
+  const s = size;
+  // background — rounded gradient square (maskable safe)
+  const g = ctx.createLinearGradient(0, 0, 0, s);
+  g.addColorStop(0, '#3949ab');
+  g.addColorStop(1, '#1a1a2e');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+
+  // stars
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  for (let i = 0; i < 30; i++) {
+    ctx.fillRect((i * 193) % s, (i * 97) % (s * 0.45), 3, 3);
+  }
+
+  // ground arc
+  const gg = ctx.createLinearGradient(0, s * 0.55, 0, s);
+  gg.addColorStop(0, '#8b6134');
+  gg.addColorStop(1, '#c9a66b');
+  ctx.fillStyle = gg;
+  ctx.fillRect(0, s * 0.55, s, s * 0.45);
+
+  // tank
+  const cx = s / 2, cy = s * 0.72;
+  const k = s / 100;
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.beginPath(); ctx.ellipse(cx, cy + 26 * k, 32 * k, 8 * k, 0, 0, Math.PI * 2); ctx.fill();
+  // wheels
+  ctx.fillStyle = '#111';
+  for (const wx of [-22, -8, 8, 22]) {
+    ctx.beginPath(); ctx.arc(cx + wx * k, cy + 16 * k, 7 * k, 0, Math.PI * 2); ctx.fill();
+  }
+  // hull base
+  ctx.fillStyle = '#0d2a5a';
+  ctx.fillRect(cx - 28 * k, cy + 2 * k, 56 * k, 14 * k);
+  // body
+  const bg = ctx.createLinearGradient(0, cy - 18 * k, 0, cy + 8 * k);
+  bg.addColorStop(0, '#64b5f6'); bg.addColorStop(1, '#0d47a1');
+  ctx.fillStyle = bg;
+  ctx.fillRect(cx - 24 * k, cy - 14 * k, 48 * k, 22 * k);
+  // turret
+  const tg = ctx.createRadialGradient(cx - 4 * k, cy - 10 * k, 2 * k, cx, cy - 8 * k, 18 * k);
+  tg.addColorStop(0, '#90caf9'); tg.addColorStop(1, '#0d47a1');
+  ctx.fillStyle = tg;
+  ctx.beginPath(); ctx.arc(cx, cy - 6 * k, 14 * k, 0, Math.PI * 2); ctx.fill();
+  // barrel
+  ctx.fillStyle = '#1a2a4a';
+  ctx.fillRect(cx - 4 * k, cy - 32 * k, 8 * k, 26 * k);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(cx - 5 * k, cy - 34 * k, 10 * k, 3 * k);
+  // muzzle flash
+  ctx.fillStyle = '#ffd54f';
+  ctx.beginPath(); ctx.arc(cx, cy - 36 * k, 6 * k, 0, Math.PI * 2); ctx.fill();
+}
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+drawIcon(ctx, 512);
+
+function download(size) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  drawIcon(c.getContext('2d'), size);
+  const a = document.createElement('a');
+  a.download = 'icon-' + size + '.png';
+  a.href = c.toDataURL('image/png');
+  a.click();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Mob Rush</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: system-ui, sans-serif; user-select: none; }
+  #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  #hud { position: fixed; top: 10px; left: 0; right: 0; display: flex; justify-content: center; gap: 10px; color: #fff; font-weight: bold; text-shadow: 0 2px 4px #000; font-size: 22px; pointer-events: none; z-index: 10; }
+  #hud .chip { background: rgba(0,0,0,0.55); padding: 6px 16px; border-radius: 999px; border: 2px solid #fff; }
+  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; background: rgba(0,0,0,0.75); z-index: 20; text-align: center; padding: 20px; }
+  #overlay h1 { font-size: 48px; margin-bottom: 8px; color: #ffd54f; text-shadow: 0 4px 8px #000; }
+  #overlay p { font-size: 18px; margin-bottom: 20px; max-width: 400px; line-height: 1.5; }
+  #overlay button { padding: 16px 40px; font-size: 22px; font-weight: bold; background: #ffd54f; border: none; border-radius: 12px; color: #222; cursor: pointer; box-shadow: 0 6px 0 #c9a227; }
+  #overlay button:active { transform: translateY(4px); box-shadow: 0 2px 0 #c9a227; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div class="chip">HP: <span id="hp">10/10</span></div>
+  <div class="chip">Shots: <span id="shots">1</span></div>
+  <div class="chip">Wave: <span id="dist">0</span></div>
+</div>
+<div id="overlay">
+  <h1>MOB RUSH</h1>
+  <p>Drag to steer your tank. Middle lane = enemies. Side lanes = upgrade walls — shoot them for firepower. Don't let enemies reach you!</p>
+  <button id="startBtn">START</button>
+</div>
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const shotsEl = document.getElementById('shots');
+  const distEl = document.getElementById('dist');
+  const hpEl = document.getElementById('hp');
+  const overlay = document.getElementById('overlay');
+  const startBtn = document.getElementById('startBtn');
+
+  let W = 0, H = 0, DPR = Math.min(window.devicePixelRatio || 1, 2);
+  let bgCanvas = null;
+  function resize() {
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    bgCanvas = null; // invalidate
+  }
+  window.addEventListener('resize', resize); resize();
+
+  // --- Perspective / world ---
+  // World has (x, z). x = horizontal position. z = depth, 0=tank plane, 1=far horizon.
+  // Tank is at z=0. Enemies start at z≈1.1, move toward z=0. Allies start at z=0, move toward z=1.
+  const HORIZON_FRAC = 0.28;            // y-fraction of screen for horizon
+  const PERSP_SHRINK = 0.82;            // how tiny things get at horizon (0..1)
+  const TANK_SCREEN_Y = () => H - 120;
+  const HORIZON_Y = () => H * HORIZON_FRAC;
+  function project(wx, z) {
+    const t = Math.max(0, Math.min(1.2, z));
+    const scale = 1 - t * PERSP_SHRINK;        // 1 near, ~0.02 far
+    const sy = TANK_SCREEN_Y() - t * (TANK_SCREEN_Y() - HORIZON_Y());
+    const cx = W / 2;
+    const sx = cx + (wx - cx) * scale;
+    return { sx, sy, scale };
+  }
+
+  function lanes() {
+    const edge = Math.max(20, W * 0.03);
+    const total = W - edge * 2;
+    const side = total * 0.38;
+    const mid = total - side * 2;
+    return {
+      leftX: edge + side / 2,
+      midX: edge + side + mid / 2,
+      rightX: edge + side + mid + side / 2,
+      sideW: side,
+      midW: mid,
+      edge,
+      leftBorder: edge + side,
+      rightBorder: edge + side + mid,
+    };
+  }
+
+  const FIRE_RATE = 430;
+  const ALLY_Z_SPEED = 0.32;
+  const ENEMY_Z_SPEED = 0.13;
+  const UPGRADE_Z_SPEED_LEFT = 0.12;
+  const UPGRADE_Z_SPEED_RIGHT = 0.26;
+  const MAX_TANK_HP = 10;
+  const MAX_VOLLEY = 80;
+  const enemyRadius = () => Math.min(18, 9 + state.waveIndex * 0.6);
+
+  const state = {
+    running: false,
+    tankX: 0,
+    shots: 1,
+    hp: MAX_TANK_HP,
+    bullets: [],
+    enemies: [],
+    upgrades: [],
+    particles: [],
+    popups: [],
+    fireTimer: 0,
+    waveIndex: 0,
+    bossIndex: 0,
+    waveCooldown: 0,
+    upgradeTimerL: 0,
+    upgradeTimerR: 0,
+    lastTime: 0,
+    shake: 0,
+    iFrame: 0,
+    time: 0,
+    barrelAngle: 0,
+    recoil: 0,
+    muzzleFlash: 0,
+    treadOffset: 0,
+  };
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function choice(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  function reset() {
+    state.tankX = lanes().midX;
+    state.shots = 1;
+    state.hp = MAX_TANK_HP;
+    state.bullets = [];
+    state.enemies = [];
+    state.upgrades = [];
+    state.particles = [];
+    state.popups = [];
+    state.fireTimer = 0;
+    state.waveIndex = 0;
+    state.bossIndex = 0;
+    state.waveCooldown = 600;
+    state.upgradeTimerL = 800;
+    state.upgradeTimerR = 2200;
+    state.shake = 0;
+    state.iFrame = 0;
+    state.time = 0;
+    updateHUD();
+  }
+
+  function updateHUD() {
+    shotsEl.textContent = state.shots;
+    distEl.textContent = state.waveIndex;
+    hpEl.textContent = state.hp + '/' + MAX_TANK_HP;
+  }
+
+  // Input
+  let dragging = false, targetX = null;
+  const getP = e => { const t = e.touches ? e.touches[0] : e; return { x: t.clientX, y: t.clientY }; };
+  canvas.addEventListener('mousedown', e => { dragging = true; targetX = getP(e).x; });
+  canvas.addEventListener('mousemove', e => { if (dragging) targetX = getP(e).x; });
+  window.addEventListener('mouseup', () => dragging = false);
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); dragging = true; targetX = getP(e).x; }, { passive: false });
+  canvas.addEventListener('touchmove', e => { e.preventDefault(); if (dragging) targetX = getP(e).x; }, { passive: false });
+  canvas.addEventListener('touchend', e => { e.preventDefault(); dragging = false; }, { passive: false });
+
+  function tankLane() {
+    const L = lanes();
+    if (state.tankX < L.leftBorder) return 'left';
+    if (state.tankX > L.rightBorder) return 'right';
+    return 'mid';
+  }
+
+  function fireVolley() {
+    const total = state.shots;
+    const visible = Math.min(MAX_VOLLEY, total);
+    const power = Math.max(1, Math.ceil(total / visible));
+    const spread = Math.min(100, 12 + visible * 2.2);
+    const lane = tankLane();
+    for (let i = 0; i < visible; i++) {
+      const t = visible === 1 ? 0 : (i / (visible - 1)) - 0.5;
+      state.bullets.push({
+        x: state.tankX + t * spread + rand(-3, 3),
+        z: 0.01 + rand(0, 0.02),
+        lane, power,
+        target: null,
+        phase: rand(0, Math.PI * 2),
+      });
+    }
+    state.recoil = 1;
+    state.muzzleFlash = 1;
+  }
+
+  function waveSize() {
+    return Math.floor(30 * Math.pow(2, Math.floor(state.waveIndex / 3)));
+  }
+
+  const MAX_WAVE_COUNT = 280;
+
+  function spawnEnemyWave() {
+    const L = lanes();
+    const target = waveSize();
+    const count = Math.min(MAX_WAVE_COUNT, target);
+    const r = enemyRadius();
+    const laneW = L.midW - r * 2 - 8;
+    const cols = Math.max(5, Math.min(8, Math.floor(laneW / (r * 2 + 4))));
+    const rows = Math.ceil(count / cols);
+    const colGap = laneW / cols;
+    // Tight z-spread so the whole wave arrives as a compact wall
+    const Z_SPREAD = 0.12;
+    const zStep = rows > 1 ? Z_SPREAD / rows : 0;
+    let placed = 0;
+    for (let row = 0; row < rows && placed < count; row++) {
+      for (let col = 0; col < cols && placed < count; col++) {
+        const x = L.midX - laneW / 2 + colGap * (col + 0.5) + rand(-2, 2);
+        const z = 1.15 + row * zStep;
+        state.enemies.push({ x, z, r, phase: rand(0, Math.PI * 2) });
+        placed++;
+      }
+    }
+    state.waveIndex++;
+    updateHUD();
+    if (state.waveIndex % 3 === 0) {
+      state.bossIndex++;
+      const hp = Math.floor(20 * Math.pow(2, state.bossIndex - 1));
+      state.enemies.push({
+        x: L.midX, z: 1.15 + Z_SPREAD + 0.04,
+        r: r * 2.6,
+        hp, maxHp: hp, isBoss: true,
+        phase: rand(0, Math.PI * 2),
+      });
+    }
+  }
+
+  function spawnUpgrade(side) {
+    const L = lanes();
+    const x = side === 'left' ? L.leftX : L.rightX;
+    const op = side === 'left' ? 'add' : 'mul';
+    const wave = state.waveIndex;
+    let value, hp;
+    if (op === 'mul') {
+      value = choice([2, 2, 3]);
+      const base = value === 2 ? rand(45, 65) : rand(70, 95);
+      hp = Math.floor(base + wave * 2.5);
+    } else {
+      value = choice([1, 1, 2, 2, 3]);
+      const base = Math.floor(rand(5, 11));
+      hp = Math.max(5, Math.floor(base + wave * 0.8));
+    }
+    state.upgrades.push({ x, z: 1.15, op, value, hp, maxHp: hp, side });
+  }
+
+  function upgradeLabel(u) { return (u.op === 'mul' ? 'x' : '+') + u.value; }
+
+  function applyUpgrade(u) {
+    if (u.op === 'mul') state.shots = state.shots * u.value;
+    else state.shots = state.shots + u.value;
+    updateHUD();
+    state.shake = 14;
+    spawnPopup(u.x, u.z, upgradeLabel(u), u.op === 'mul' ? '#4dd0e1' : '#80deea');
+    burst(u.x, u.z, '#4fc3f7', 30);
+  }
+
+  function burst(wx, wz, color, n = 14) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, s = rand(50, 220);
+      state.particles.push({
+        x: wx, z: wz,
+        vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+        life: rand(0.25, 0.65), age: 0,
+        color, size: rand(2, 5),
+      });
+    }
+  }
+
+  function spawnPopup(wx, wz, text, color) {
+    state.popups.push({ x: wx, z: wz, text, color, life: 1.2, age: 0 });
+  }
+
+  function update(dt) {
+    if (!state.running) return;
+    const L = lanes();
+    state.time += dt;
+
+    if (targetX != null) {
+      const dx = targetX - state.tankX;
+      state.tankX += Math.sign(dx) * Math.min(Math.abs(dx), 900 * dt);
+    }
+    state.tankX = Math.max(L.edge + 26, Math.min(W - L.edge - 26, state.tankX));
+
+    // Fire
+    state.fireTimer -= dt * 1000;
+    while (state.fireTimer <= 0) { fireVolley(); state.fireTimer += FIRE_RATE; }
+
+    // Waves: spawn as soon as field is nearly clear (short cooldown)
+    state.waveCooldown -= dt * 1000;
+    const alive = state.enemies.filter(e => !e.dead).length;
+    if (state.waveCooldown <= 0 && alive <= 2) {
+      spawnEnemyWave();
+      state.waveCooldown = 600;
+    }
+
+    // Upgrades
+    state.upgradeTimerL -= dt * 1000;
+    if (state.upgradeTimerL <= 0) {
+      const topLeft = state.upgrades.filter(u => u.side === 'left').map(u => u.z);
+      const clear = topLeft.length === 0 || Math.max(...topLeft) < 0.9;
+      if (clear) { spawnUpgrade('left'); state.upgradeTimerL = rand(1400, 2400); }
+      else state.upgradeTimerL = 200;
+    }
+    state.upgradeTimerR -= dt * 1000;
+    if (state.upgradeTimerR <= 0) {
+      const topRight = state.upgrades.filter(u => u.side === 'right').map(u => u.z);
+      const clear = topRight.length === 0 || Math.max(...topRight) < 0.9;
+      if (clear) { spawnUpgrade('right'); state.upgradeTimerR = rand(6000, 9000); }
+      else state.upgradeTimerR = 200;
+    }
+
+    // Targeting uses a linear scan (cheap thanks to caching).
+    // Closest enemy by z-distance (ahead of ally).
+    function nearestEnemy(wx, wz) {
+      let best = null, bd = Infinity;
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        if (e.z < wz) continue; // only enemies still ahead
+        const dx = (e.x - wx) / 250;
+        const dz = e.z - wz;
+        const d2 = dx * dx * 0.4 + dz * dz;
+        if (d2 < bd) { bd = d2; best = e; }
+      }
+      return best;
+    }
+    // Z buckets for collision (cheap)
+    const Z_BUCKET = 0.05;
+    const buckets = new Map();
+    for (const e of state.enemies) {
+      if (e.dead) continue;
+      const k = Math.floor(e.z / Z_BUCKET);
+      let b = buckets.get(k); if (!b) { b = []; buckets.set(k, b); }
+      b.push(e);
+    }
+
+    // Allies: move in z toward nearest enemy (or wall in side lanes), steer x smoothly
+    for (const a of state.bullets) {
+      if (a.dead) continue;
+      if (!a.target || a.target.dead) {
+        if (a.lane === 'mid') a.target = nearestEnemy(a.x, a.z);
+        else {
+          let best = null, bd = Infinity;
+          for (const u of state.upgrades) {
+            if (u.dead || u.side !== a.lane) continue;
+            const dx = u.x - a.x, dz = u.z - a.z;
+            const d2 = dx * dx / 40000 + dz * dz;
+            if (d2 < bd) { bd = d2; best = u; }
+          }
+          a.target = best;
+        }
+      }
+      let tx, tz;
+      if (a.target) { tx = a.target.x; tz = a.target.z; }
+      else { tx = a.x; tz = a.z + 0.1; }
+      a.z += ALLY_Z_SPEED * dt;
+      const dx = tx - a.x;
+      const maxDx = 320 * dt;
+      a.x += Math.sign(dx) * Math.min(Math.abs(dx), maxDx);
+      // clamp to lane
+      if (a.lane === 'left') a.x = Math.max(L.edge + 6, Math.min(L.leftBorder - 6, a.x));
+      else if (a.lane === 'right') a.x = Math.max(L.rightBorder + 6, Math.min(W - L.edge - 6, a.x));
+      else a.x = Math.max(L.leftBorder + 6, Math.min(L.rightBorder - 6, a.x));
+    }
+
+    // Enemies: reduce z toward tank (no x seeking)
+    for (const e of state.enemies) {
+      if (e.dead) continue;
+      const sp = e.isBoss ? ENEMY_Z_SPEED * 0.55 : ENEMY_Z_SPEED;
+      e.z -= sp * dt;
+    }
+    // Upgrades: reduce z toward tank
+    for (const u of state.upgrades) {
+      if (u.dead) continue;
+      u.z -= (u.side === 'left' ? UPGRADE_Z_SPEED_LEFT : UPGRADE_Z_SPEED_RIGHT) * dt;
+    }
+
+    // Collisions: ally vs enemy (bucket-based)
+    for (const a of state.bullets) {
+      if (a.dead) continue;
+      if (a.power == null) a.power = 1;
+      const k = Math.floor(a.z / Z_BUCKET);
+      for (let s = -1; s <= 1 && a.power > 0; s++) {
+        const cell = buckets.get(k + s);
+        if (!cell) continue;
+        for (const e of cell) {
+          if (e.dead) continue;
+          const dx = a.x - e.x;
+          const dz = a.z - e.z;
+          if (Math.abs(dx) < (e.r + 22) && Math.abs(dz) < 0.06) {
+            if (e.isBoss) {
+              const dmg = Math.min(e.hp, a.power);
+              e.hp -= dmg;
+              a.power -= dmg;
+              if (e.hp <= 0) { e.dead = true; burst(e.x, e.z, '#ff1744', 30); state.shake = 18; }
+            } else {
+              e.dead = true;
+              a.power -= 1;
+            }
+            if (a.power <= 0) break;
+          }
+        }
+      }
+      if (a.power <= 0) a.dead = true;
+    }
+
+    // Ally vs upgrade wall
+    for (const a of state.bullets) {
+      if (a.dead) continue;
+      if (a.power == null) a.power = 1;
+      for (const u of state.upgrades) {
+        if (u.dead) continue;
+        if (a.lane !== u.side) continue;
+        if (Math.abs(a.x - u.x) < 60 && Math.abs(a.z - u.z) < 0.04) {
+          const dmg = Math.min(u.hp, a.power);
+          u.hp -= dmg;
+          a.power -= dmg;
+          if (u.hp <= 0) { u.dead = true; applyUpgrade(u); }
+          if (a.power <= 0) { a.dead = true; break; }
+        }
+      }
+    }
+
+    // Enemies that reach tank plane (z <= 0)
+    if (state.iFrame > 0) state.iFrame -= dt;
+    for (const e of state.enemies) {
+      if (e.dead) continue;
+      if (e.z <= 0) {
+        e.dead = true;
+        burst(e.x, 0, '#ffffff', 10);
+        const dmg = e.isBoss ? 5 : 1;
+        if (state.iFrame <= 0 || e.isBoss) {
+          state.hp -= dmg;
+          state.iFrame = 0.2;
+          state.shake = e.isBoss ? 22 : 10;
+          updateHUD();
+          if (state.hp <= 0) {
+            state.shake = 26;
+            burst(state.tankX, 0, '#ffffff', 60);
+            return gameOver();
+          }
+        }
+      }
+    }
+
+    // Cleanup
+    state.bullets = state.bullets.filter(b => !b.dead && b.z < 1.3);
+    state.enemies = state.enemies.filter(e => !e.dead);
+    state.upgrades = state.upgrades.filter(u => !u.dead && u.z > -0.1);
+
+    // Particles (float in screen space)
+    for (const p of state.particles) {
+      p.age += dt;
+      p.vx *= 0.95; p.vy *= 0.95;
+    }
+    state.particles = state.particles.filter(p => p.age < p.life);
+
+    // Popups rise in screen
+    for (const p of state.popups) {
+      p.age += dt;
+      p.z = Math.max(0, p.z - 0.4 * dt);
+    }
+    state.popups = state.popups.filter(p => p.age < p.life);
+
+    if (state.shake > 0) state.shake = Math.max(0, state.shake - dt * 40);
+    if (state.recoil > 0) state.recoil = Math.max(0, state.recoil - dt * 6);
+    if (state.muzzleFlash > 0) state.muzzleFlash = Math.max(0, state.muzzleFlash - dt * 10);
+
+    // Tread spin tracks tank horizontal motion + a small idle drift
+    const idle = 1.5;
+    state.treadOffset += (Math.abs(targetX != null ? (targetX - state.tankX) * 0.02 : 0) + idle) * dt;
+
+    // Barrel tracks nearest enemy (in mid lane, any z). Smooth rotation.
+    let nearest = null, nd = Infinity;
+    for (const e of state.enemies) {
+      if (e.dead) continue;
+      const dz = e.z;
+      const dx = (e.x - state.tankX) / 300;
+      const d2 = dz * dz + dx * dx;
+      if (d2 < nd) { nd = d2; nearest = e; }
+    }
+    let targetAngle = 0;
+    if (nearest) {
+      const nx = project(nearest.x, nearest.z);
+      const dx = nx.sx - state.tankX;
+      const dy = nx.sy - TANK_SCREEN_Y();
+      targetAngle = Math.atan2(dx, -dy);
+      targetAngle = Math.max(-0.7, Math.min(0.7, targetAngle));
+    }
+    const da = targetAngle - state.barrelAngle;
+    state.barrelAngle += da * Math.min(1, 6 * dt);
+  }
+
+  // --- Rendering ---
+  function buildBg() {
+    const L = lanes();
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const g = c.getContext('2d');
+    const HY = HORIZON_Y();
+
+    // sky gradient
+    const sky = g.createLinearGradient(0, 0, 0, HY);
+    sky.addColorStop(0, '#0d1030');
+    sky.addColorStop(0.55, '#352660');
+    sky.addColorStop(0.85, '#8b4a56');
+    sky.addColorStop(1, '#c97a3e');
+    g.fillStyle = sky;
+    g.fillRect(0, 0, W, HY);
+
+    // stars (dithered)
+    g.fillStyle = 'rgba(255,255,255,0.75)';
+    for (let i = 0; i < 80; i++) {
+      const sx = (i * 193) % W;
+      const sy = (i * 97) % (HY - 60);
+      const s = (i * 31) % 3 + 1;
+      g.globalAlpha = 0.4 + ((i * 17) % 60) / 100;
+      g.fillRect(sx, sy, s, s);
+    }
+    g.globalAlpha = 1;
+
+    // sun glow
+    const sunX = W / 2, sunY = HY - 25;
+    const sunG = g.createRadialGradient(sunX, sunY, 4, sunX, sunY, W * 0.55);
+    sunG.addColorStop(0, 'rgba(255, 200, 140, 0.75)');
+    sunG.addColorStop(0.2, 'rgba(255, 160, 90, 0.45)');
+    sunG.addColorStop(1, 'rgba(255, 140, 80, 0)');
+    g.fillStyle = sunG;
+    g.fillRect(0, 0, W, HY + 30);
+    // sun disc
+    g.fillStyle = '#ffd280';
+    g.beginPath();
+    g.arc(sunX, sunY, 18, 0, Math.PI * 2);
+    g.fill();
+
+    // far mountains
+    g.fillStyle = '#2b2450';
+    g.beginPath();
+    g.moveTo(0, HY);
+    for (let x = 0; x <= W; x += 20) {
+      const noise = Math.sin(x * 0.013) * 28 + Math.sin(x * 0.04 + 1.2) * 14 + Math.sin(x * 0.08) * 6;
+      g.lineTo(x, HY - HY * 0.32 - noise);
+    }
+    g.lineTo(W, HY); g.closePath(); g.fill();
+
+    // near mountains (darker)
+    g.fillStyle = '#16122c';
+    g.beginPath();
+    g.moveTo(0, HY);
+    for (let x = 0; x <= W; x += 16) {
+      const noise = Math.sin(x * 0.021 + 0.6) * 18 + Math.sin(x * 0.06 + 2.3) * 10;
+      g.lineTo(x, HY - HY * 0.18 - noise);
+    }
+    g.lineTo(W, HY); g.closePath(); g.fill();
+
+    // horizon edge
+    g.fillStyle = 'rgba(0,0,0,0.45)';
+    g.fillRect(0, HY - 2, W, 4);
+
+    // ground gradient (base sand)
+    const gg = g.createLinearGradient(0, HY, 0, H);
+    gg.addColorStop(0, '#5d3a1f');
+    gg.addColorStop(0.35, '#8b6134');
+    gg.addColorStop(1, '#c9a66b');
+    g.fillStyle = gg;
+    g.fillRect(0, HY, W, H - HY);
+
+    // ground speckle noise
+    for (let i = 0; i < 1400; i++) {
+      const y = HY + (Math.random() ** 1.7) * (H - HY);
+      const t = (y - HY) / (H - HY);
+      const size = 1 + t * 2;
+      const r = 80 + Math.random() * 50, gr = 50 + Math.random() * 30, b = 20 + Math.random() * 20;
+      g.fillStyle = 'rgba(' + r + ',' + gr + ',' + b + ',' + (0.25 + t * 0.5) + ')';
+      g.fillRect(Math.random() * W, y, size, size);
+    }
+
+    // tire tracks in mid lane (subtle)
+    const trackP1 = project(L.midX - 14, 1.0);
+    const trackP2 = project(L.midX + 14, 1.0);
+    const y0 = TANK_SCREEN_Y() + 120;
+    g.strokeStyle = 'rgba(0,0,0,0.2)';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(trackP1.sx, trackP1.sy);
+    g.lineTo(L.midX - 14, y0);
+    g.moveTo(trackP2.sx, trackP2.sy);
+    g.lineTo(L.midX + 14, y0);
+    g.stroke();
+
+    // scattered rocks & tufts placed in ground perspective
+    function placeRock(wx, z) {
+      const p = project(wx, z);
+      if (p.sy < HY + 2) return;
+      const r = Math.max(2, 9 * p.scale);
+      g.fillStyle = 'rgba(60,40,20,0.8)';
+      g.beginPath(); g.arc(p.sx, p.sy, r, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(140, 100, 60, 0.6)';
+      g.beginPath(); g.arc(p.sx - r * 0.3, p.sy - r * 0.3, r * 0.55, 0, Math.PI * 2); g.fill();
+    }
+    function placeTuft(wx, z) {
+      const p = project(wx, z);
+      if (p.sy < HY + 4) return;
+      const r = Math.max(2, 6 * p.scale);
+      g.strokeStyle = 'rgba(70, 90, 40, 0.75)';
+      g.lineWidth = Math.max(1, 1.6 * p.scale);
+      g.beginPath();
+      for (let k = -1; k <= 1; k++) {
+        g.moveTo(p.sx + k * r * 0.5, p.sy);
+        g.lineTo(p.sx + k * r * 0.25, p.sy - r * 1.5);
+      }
+      g.stroke();
+    }
+    // deterministic-ish scatter outside lanes
+    for (let i = 0; i < 60; i++) {
+      const z = 0.08 + ((i * 0.0714) % 1.05);
+      const bias = (i * 0.37) % 1;
+      let wx;
+      if (bias < 0.5) wx = rand(0, L.edge - 6);
+      else wx = rand(W - L.edge + 6, W);
+      if (i % 2 === 0) placeRock(wx, z); else placeTuft(wx, z);
+    }
+    // a few in far sides (near horizon)
+    for (let i = 0; i < 20; i++) {
+      const z = 0.7 + Math.random() * 0.38;
+      let wx = Math.random() < 0.5 ? Math.random() * L.edge * 1.2 : W - Math.random() * L.edge * 1.2;
+      placeRock(wx, z);
+    }
+
+    // SIDE LANES as stacked metal platforms (converging trapezoids)
+    const tl1 = project(L.edge, 1.0);
+    const tl2 = project(L.leftBorder, 1.0);
+    const tr1 = project(L.rightBorder, 1.0);
+    const tr2 = project(W - L.edge, 1.0);
+    function drawSideLane(topL, topR, botL, botR) {
+      // base metal plate
+      const lg = g.createLinearGradient(0, topL.sy, 0, y0);
+      lg.addColorStop(0, '#3a2d6a');
+      lg.addColorStop(0.5, '#4a2a6e');
+      lg.addColorStop(1, '#2a1540');
+      g.fillStyle = lg;
+      g.beginPath();
+      g.moveTo(topL.sx, topL.sy);
+      g.lineTo(topR.sx, topR.sy);
+      g.lineTo(botR, y0);
+      g.lineTo(botL, y0);
+      g.closePath(); g.fill();
+      // ribbed bands across the lane (perspective)
+      g.strokeStyle = 'rgba(0,0,0,0.45)';
+      for (let z = 1.0; z > -0.02; z -= 0.06) {
+        const a = project((botL + botR) / 2 - (botR - botL) * 0.5, z);
+        const b = project((botL + botR) / 2 + (botR - botL) * 0.5, z);
+        g.lineWidth = Math.max(0.5, 1.8 * a.scale);
+        g.beginPath();
+        g.moveTo(a.sx, a.sy); g.lineTo(b.sx, b.sy);
+        g.stroke();
+      }
+      // outer border rails
+      g.strokeStyle = '#0a0520';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(topL.sx, topL.sy); g.lineTo(botL, y0);
+      g.moveTo(topR.sx, topR.sy); g.lineTo(botR, y0);
+      g.stroke();
+      // inner glow strip
+      g.strokeStyle = 'rgba(130, 100, 200, 0.35)';
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(topR.sx, topR.sy); g.lineTo(botR, y0);
+      g.stroke();
+    }
+    drawSideLane(tl1, tl2, L.edge, L.leftBorder);
+    drawSideLane(tr1, tr2, L.rightBorder, W - L.edge);
+
+    // MID LANE: asphalt with cracks
+    const tm1 = tl2; const tm2 = tr1;
+    const asphalt = g.createLinearGradient(0, tm1.sy, 0, y0);
+    asphalt.addColorStop(0, '#2a2a34');
+    asphalt.addColorStop(1, '#4a4a54');
+    g.fillStyle = asphalt;
+    g.beginPath();
+    g.moveTo(tm1.sx, tm1.sy);
+    g.lineTo(tm2.sx, tm2.sy);
+    g.lineTo(L.rightBorder, y0);
+    g.lineTo(L.leftBorder, y0);
+    g.closePath(); g.fill();
+    // asphalt noise specks
+    for (let i = 0; i < 400; i++) {
+      const z = Math.random();
+      const a = project(L.leftBorder + Math.random() * L.midW, z);
+      const shade = 40 + Math.random() * 30;
+      g.fillStyle = 'rgba(' + shade + ',' + shade + ',' + (shade + 8) + ',' + (0.3 + Math.random() * 0.3) + ')';
+      g.fillRect(a.sx, a.sy, 1.5, 1.5);
+    }
+    // cracks
+    g.strokeStyle = 'rgba(0,0,0,0.4)';
+    for (let i = 0; i < 5; i++) {
+      const z = 0.1 + (i * 0.18);
+      const start = project(L.leftBorder + 10 + (i * 37) % L.midW, z);
+      g.lineWidth = Math.max(0.5, 1 * start.scale);
+      g.beginPath();
+      g.moveTo(start.sx, start.sy);
+      g.lineTo(start.sx + 20 * start.scale, start.sy + 8 * start.scale);
+      g.lineTo(start.sx + 8 * start.scale, start.sy + 20 * start.scale);
+      g.stroke();
+    }
+    // mid lane edge lines (yellow)
+    g.strokeStyle = '#ffb300';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(tm1.sx, tm1.sy); g.lineTo(L.leftBorder, y0);
+    g.moveTo(tm2.sx, tm2.sy); g.lineTo(L.rightBorder, y0);
+    g.stroke();
+
+    return c;
+  }
+
+  function drawBgLayer() {
+    if (!bgCanvas) bgCanvas = buildBg();
+    ctx.drawImage(bgCanvas, 0, 0);
+  }
+
+  function drawWheel(cx, cy, r, spin) {
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#2a2a2a';
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#888';
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.25, 0, Math.PI * 2); ctx.fill();
+    // spokes
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = Math.max(1, r * 0.12);
+    for (let i = 0; i < 4; i++) {
+      const a = spin + i * Math.PI / 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a) * r * 0.5, cy + Math.sin(a) * r * 0.5);
+      ctx.stroke();
+    }
+  }
+
+  function drawTank(x, y, flash) {
+    if (flash) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const s = 1.4;
+
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath();
+    ctx.ellipse(0, 28 * s, 46 * s, 12 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // wheels (4 visible)
+    const wheelR = 10 * s;
+    const wheelY = 18 * s;
+    const spin = state.treadOffset;
+    drawWheel(-28 * s, wheelY, wheelR, spin);
+    drawWheel(-10 * s, wheelY, wheelR, spin);
+    drawWheel(10 * s, wheelY, wheelR, spin);
+    drawWheel(28 * s, wheelY, wheelR, spin);
+
+    // lower hull (darker base)
+    ctx.fillStyle = '#0d2a5a';
+    ctx.beginPath();
+    ctx.roundRect(-34 * s, 4 * s, 68 * s, 18 * s, 6 * s);
+    ctx.fill();
+
+    // main body (rounded armor)
+    const bodyG = ctx.createLinearGradient(0, -24 * s, 0, 10 * s);
+    bodyG.addColorStop(0, '#64b5f6');
+    bodyG.addColorStop(0.5, '#2196f3');
+    bodyG.addColorStop(1, '#0d47a1');
+    ctx.fillStyle = bodyG;
+    ctx.beginPath();
+    ctx.roundRect(-30 * s, -18 * s, 60 * s, 30 * s, 10 * s);
+    ctx.fill();
+    // highlight stripe
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 2 * s;
+    ctx.beginPath();
+    ctx.moveTo(-26 * s, -13 * s);
+    ctx.lineTo(26 * s, -13 * s);
+    ctx.stroke();
+    // rivets
+    ctx.fillStyle = '#0a1a3a';
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath(); ctx.arc(i * 10 * s, 6 * s, 1.5 * s, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // turret (rotates with barrel angle)
+    ctx.save();
+    ctx.rotate(state.barrelAngle);
+    const recoilOffset = -state.recoil * 6 * s;
+    ctx.translate(0, recoilOffset * 0.3);
+    // turret base
+    const turretG = ctx.createRadialGradient(-5 * s, -12 * s, 2 * s, 0, -8 * s, 22 * s);
+    turretG.addColorStop(0, '#90caf9');
+    turretG.addColorStop(0.6, '#1976d2');
+    turretG.addColorStop(1, '#0d47a1');
+    ctx.fillStyle = turretG;
+    ctx.beginPath();
+    ctx.arc(0, -6 * s, 18 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#0a1a3a';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // barrel (extends forward from turret, with recoil)
+    ctx.translate(0, recoilOffset);
+    ctx.fillStyle = '#1a2a4a';
+    ctx.beginPath();
+    ctx.roundRect(-5 * s, -40 * s, 10 * s, 36 * s, 3 * s);
+    ctx.fill();
+    // barrel tip
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(-6 * s, -42 * s, 12 * s, 4 * s);
+    // muzzle flash
+    if (state.muzzleFlash > 0) {
+      const mf = state.muzzleFlash;
+      ctx.fillStyle = 'rgba(255, 240, 180, ' + mf + ')';
+      ctx.beginPath();
+      ctx.arc(0, -46 * s, 14 * s * (1 + (1 - mf) * 0.6), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 140, 60, ' + (mf * 0.8) + ')';
+      ctx.beginPath();
+      ctx.arc(0, -46 * s, 9 * s * (1 + (1 - mf) * 0.4), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // antenna
+    ctx.strokeStyle = '#0a1a3a';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(18 * s, -12 * s);
+    ctx.lineTo(26 * s, -28 * s + Math.sin(state.time * 3) * 2);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function makeChibiSprite(color, dark, highlight, isBoss) {
+    const SRC_R = 32;
+    const size = SRC_R * 3.5;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const g = c.getContext('2d');
+    const cx = size / 2, cy = size / 2;
+    const r = SRC_R;
+    // shadow
+    g.fillStyle = 'rgba(0,0,0,0.45)';
+    g.beginPath();
+    g.ellipse(cx, cy + r * 1.35, r * 0.95, r * 0.3, 0, 0, Math.PI * 2);
+    g.fill();
+    // legs
+    g.fillStyle = dark;
+    g.beginPath();
+    g.roundRect(cx - r * 0.45, cy + r * 0.5, r * 0.35, r * 0.55, r * 0.15);
+    g.fill();
+    g.beginPath();
+    g.roundRect(cx + r * 0.1, cy + r * 0.5, r * 0.35, r * 0.55, r * 0.15);
+    g.fill();
+    // body (rounded)
+    const bg = g.createLinearGradient(cx - r, cy, cx + r, cy);
+    bg.addColorStop(0, dark);
+    bg.addColorStop(0.5, color);
+    bg.addColorStop(1, dark);
+    g.fillStyle = bg;
+    g.beginPath();
+    g.roundRect(cx - r * 0.65, cy - r * 0.25, r * 1.3, r * 0.95, r * 0.35);
+    g.fill();
+    // head (big chibi)
+    const hg = g.createRadialGradient(cx - r * 0.2, cy - r * 0.9, r * 0.1, cx, cy - r * 0.7, r * 0.95);
+    hg.addColorStop(0, highlight);
+    hg.addColorStop(0.5, color);
+    hg.addColorStop(1, dark);
+    g.fillStyle = hg;
+    g.beginPath();
+    g.arc(cx, cy - r * 0.65, r * 0.85, 0, Math.PI * 2);
+    g.fill();
+    // eyes
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(cx - r * 0.25, cy - r * 0.7, r * 0.12, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(cx + r * 0.25, cy - r * 0.7, r * 0.12, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#000';
+    g.beginPath(); g.arc(cx - r * 0.22, cy - r * 0.68, r * 0.06, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(cx + r * 0.28, cy - r * 0.68, r * 0.06, 0, Math.PI * 2); g.fill();
+    // boss: horns + angry brow
+    if (isBoss) {
+      g.fillStyle = '#ffca28';
+      g.beginPath();
+      g.moveTo(cx - r * 0.7, cy - r * 1.1);
+      g.lineTo(cx - r * 0.45, cy - r * 1.5);
+      g.lineTo(cx - r * 0.3, cy - r * 1.1);
+      g.closePath(); g.fill();
+      g.beginPath();
+      g.moveTo(cx + r * 0.7, cy - r * 1.1);
+      g.lineTo(cx + r * 0.45, cy - r * 1.5);
+      g.lineTo(cx + r * 0.3, cy - r * 1.1);
+      g.closePath(); g.fill();
+      // eyebrow
+      g.strokeStyle = '#000';
+      g.lineWidth = r * 0.08;
+      g.beginPath();
+      g.moveTo(cx - r * 0.4, cy - r * 0.88);
+      g.lineTo(cx - r * 0.12, cy - r * 0.78);
+      g.moveTo(cx + r * 0.4, cy - r * 0.88);
+      g.lineTo(cx + r * 0.12, cy - r * 0.78);
+      g.stroke();
+    } else {
+      // helmet stripe
+      g.fillStyle = dark;
+      g.fillRect(cx - r * 0.75, cy - r * 1.15, r * 1.5, r * 0.18);
+    }
+    return { canvas: c, size, srcR: SRC_R };
+  }
+  const SPR_ALLY = makeChibiSprite('#42a5f5', '#0d47a1', '#90caf9', false);
+  const SPR_ENEMY = makeChibiSprite('#ef5350', '#b71c1c', '#ffcdd2', false);
+  const SPR_BOSS = makeChibiSprite('#d81b60', '#4a0025', '#f8bbd0', true);
+
+  function drawSprite(spr, sx, sy, worldR, scale, phase) {
+    const s = scale * (worldR / spr.srcR);
+    const w = spr.size * s;
+    const bob = Math.sin(state.time * 10 + (phase || 0)) * 2 * scale;
+    const sway = Math.cos(state.time * 5 + (phase || 0)) * 1 * scale;
+    ctx.drawImage(spr.canvas, sx - w / 2 + sway, sy - w / 2 + bob, w, w);
+  }
+
+  function drawUpgradeWall(u) {
+    const p = project(u.x, u.z);
+    const w = 160 * p.scale;
+    const h = 100 * p.scale;
+    const x = p.sx - w / 2;
+    const y = p.sy - h / 2;
+    const good = u.op === 'mul';
+    const pulse = 0.75 + Math.sin(state.time * 5 + u.x * 0.1) * 0.25;
+
+    // outer glow
+    const glowG = ctx.createRadialGradient(p.sx, p.sy, w * 0.2, p.sx, p.sy, w * 0.95);
+    const glowColor = good ? '0, 229, 255' : '66, 165, 245';
+    glowG.addColorStop(0, 'rgba(' + glowColor + ',' + (pulse * 0.55) + ')');
+    glowG.addColorStop(1, 'rgba(' + glowColor + ',0)');
+    ctx.fillStyle = glowG;
+    ctx.fillRect(x - w * 0.5, y - h * 0.3, w * 2, h * 1.6);
+
+    // 3D side faces
+    const depthOff = 8 * p.scale;
+    ctx.fillStyle = good ? '#00363d' : '#0a2a6e';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - depthOff, y + depthOff);
+    ctx.lineTo(x - depthOff, y + h + depthOff);
+    ctx.lineTo(x, y + h);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = good ? '#004751' : '#0d3b8a';
+    ctx.beginPath();
+    ctx.moveTo(x + w, y);
+    ctx.lineTo(x + w + depthOff, y + depthOff);
+    ctx.lineTo(x + w + depthOff, y + h + depthOff);
+    ctx.lineTo(x + w, y + h);
+    ctx.closePath(); ctx.fill();
+    // top face
+    ctx.fillStyle = good ? '#4dd0e1' : '#90caf9';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(x + w + depthOff, y + depthOff);
+    ctx.lineTo(x - depthOff, y + depthOff);
+    ctx.closePath(); ctx.fill();
+
+    // front face base
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    if (good) { g.addColorStop(0, '#00e5ff'); g.addColorStop(0.5, '#00acc1'); g.addColorStop(1, '#00424a'); }
+    else { g.addColorStop(0, '#82b1ff'); g.addColorStop(0.5, '#2979ff'); g.addColorStop(1, '#0a2a6e'); }
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, w, h);
+
+    // corrugation: vertical ridges
+    const ridgeCount = 8;
+    const ridgeW = w / ridgeCount;
+    for (let i = 0; i < ridgeCount; i++) {
+      const rx = x + i * ridgeW;
+      // shadow groove
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(rx, y, ridgeW * 0.15, h);
+      // highlight ridge
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillRect(rx + ridgeW * 0.55, y, ridgeW * 0.12, h);
+    }
+
+    // horizontal bands (top and bottom)
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(x, y + h * 0.18, w, 3 * p.scale);
+    ctx.fillRect(x, y + h * 0.78, w, 3 * p.scale);
+
+    // rivets at corners and edges
+    ctx.fillStyle = '#1a1a2a';
+    const rsize = Math.max(1.5, 3 * p.scale);
+    for (const ry of [y + 5 * p.scale, y + h - 8 * p.scale]) {
+      for (const rx of [x + 6 * p.scale, x + w - 8 * p.scale, x + w / 2]) {
+        ctx.beginPath(); ctx.arc(rx, ry, rsize, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.beginPath(); ctx.arc(rx - rsize * 0.3, ry - rsize * 0.3, rsize * 0.4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#1a1a2a';
+      }
+    }
+
+    // wear / scratch marks
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = Math.max(0.5, 1 * p.scale);
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.15, y + h * 0.35);
+    ctx.lineTo(x + w * 0.3, y + h * 0.45);
+    ctx.moveTo(x + w * 0.65, y + h * 0.55);
+    ctx.lineTo(x + w * 0.8, y + h * 0.6);
+    ctx.stroke();
+
+    // bright border
+    ctx.strokeStyle = good ? '#b2ebf2' : '#bbdefb';
+    ctx.lineWidth = Math.max(1.5, 3 * p.scale);
+    ctx.strokeRect(x, y, w, h);
+
+    // label with stroke
+    const fs = Math.max(14, 42 * p.scale);
+    ctx.font = '900 ' + fs + 'px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = Math.max(3, 5 * p.scale);
+    ctx.strokeText(upgradeLabel(u), p.sx, p.sy - 4 * p.scale);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(upgradeLabel(u), p.sx, p.sy - 4 * p.scale);
+
+    // HP bar
+    const bw = w * 0.82;
+    const by = y + h - 12 * p.scale;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(p.sx - bw / 2, by, bw, 7 * p.scale);
+    ctx.fillStyle = '#ff5252';
+    ctx.fillRect(p.sx - bw / 2, by, bw * (u.hp / u.maxHp), 7 * p.scale);
+    ctx.fillStyle = '#fff';
+    const sf = Math.max(9, 14 * p.scale);
+    ctx.font = 'bold ' + sf + 'px system-ui';
+    ctx.fillText(u.hp + '/' + u.maxHp, p.sx, by - 10 * p.scale);
+  }
+
+  function render() {
+    const sx = state.shake ? rand(-state.shake, state.shake) : 0;
+    const sy = state.shake ? rand(-state.shake, state.shake) : 0;
+    ctx.save();
+    ctx.translate(sx, sy);
+
+    drawBgLayer();
+
+    // Sort render entities by z descending so far drawn first
+    const all = [];
+    for (const u of state.upgrades) all.push({ z: u.z, kind: 'u', ref: u });
+    for (const e of state.enemies) all.push({ z: e.z, kind: 'e', ref: e });
+    for (const b of state.bullets) all.push({ z: b.z, kind: 'b', ref: b });
+    all.sort((a, b) => b.z - a.z);
+
+    for (const it of all) {
+      if (it.kind === 'u') {
+        drawUpgradeWall(it.ref);
+      } else if (it.kind === 'e') {
+        const e = it.ref;
+        const p = project(e.x, e.z);
+        if (e.isBoss) {
+          // aura ring
+          const pulse = 1 + Math.sin(state.time * 4) * 0.12;
+          ctx.strokeStyle = 'rgba(255, 59, 107, ' + (0.5 + Math.sin(state.time * 4) * 0.3) + ')';
+          ctx.lineWidth = Math.max(2, 6 * p.scale);
+          ctx.beginPath();
+          ctx.arc(p.sx, p.sy - e.r * p.scale * 0.2, e.r * p.scale * 1.6 * pulse, 0, Math.PI * 2);
+          ctx.stroke();
+          drawSprite(SPR_BOSS, p.sx, p.sy, e.r, p.scale, e.phase);
+          const bw = 80 * p.scale;
+          ctx.fillStyle = '#000';
+          ctx.fillRect(p.sx - bw / 2, p.sy - 30 * p.scale, bw, 7 * p.scale);
+          ctx.fillStyle = '#ef5350';
+          ctx.fillRect(p.sx - bw / 2, p.sy - 30 * p.scale, bw * (e.hp / e.maxHp), 7 * p.scale);
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold ' + Math.max(10, 12 * p.scale) + 'px system-ui';
+          ctx.textAlign = 'center';
+          ctx.fillText('BOSS ' + e.hp, p.sx, p.sy - 36 * p.scale);
+        } else {
+          drawSprite(SPR_ENEMY, p.sx, p.sy, e.r, p.scale, e.phase);
+        }
+      } else {
+        const b = it.ref;
+        const p = project(b.x, b.z);
+        drawSprite(SPR_ALLY, p.sx, p.sy, 8, p.scale, b.phase);
+      }
+    }
+
+    // Tank (always foreground, not projected)
+    const flash = state.iFrame > 0 && Math.floor(state.iFrame * 30) % 2 === 0;
+    drawTank(state.tankX, TANK_SCREEN_Y(), flash);
+
+
+    // Particles (screen-space burst from world pos)
+    for (const p of state.particles) {
+      const proj = project(p.x, p.z);
+      ctx.globalAlpha = (1 - p.age / p.life) * 0.9;
+      ctx.fillStyle = p.color;
+      const px = proj.sx + p.vx * p.age;
+      const py = proj.sy + p.vy * p.age;
+      ctx.fillRect(px - p.size / 2, py - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+
+    // Popups
+    for (const pop of state.popups) {
+      const p = project(pop.x, pop.z);
+      const a = 1 - pop.age / pop.life;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = pop.color;
+      ctx.font = 'bold ' + Math.max(18, 32 * p.scale) + 'px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(pop.text, p.sx, p.sy - 40 * p.scale - pop.age * 30);
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.restore();
+  }
+
+  function gameOver() {
+    state.running = false;
+    overlay.classList.remove('hidden');
+    overlay.querySelector('h1').textContent = 'OVERRUN!';
+    overlay.querySelector('p').textContent = 'Survived ' + state.waveIndex + ' waves with ' + state.shots + ' shots/volley. Tap to retry.';
+    startBtn.textContent = 'RETRY';
+  }
+
+  function loop(ts) {
+    if (!state.lastTime) state.lastTime = ts;
+    const dt = Math.min(0.05, (ts - state.lastTime) / 1000);
+    state.lastTime = ts;
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  startBtn.addEventListener('click', () => {
+    reset();
+    state.running = true;
+    overlay.classList.add('hidden');
+  });
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
