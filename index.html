@@ -10,32 +10,173 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>Mob Rush</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Russo+One&display=swap" rel="stylesheet">
+<title>Mob Tank</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: system-ui, sans-serif; user-select: none; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: 'Russo One', system-ui, sans-serif; user-select: none; }
   #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
-  #hud { position: fixed; top: 10px; left: 0; right: 0; display: flex; justify-content: center; gap: 10px; color: #fff; font-weight: bold; text-shadow: 0 2px 4px #000; font-size: 22px; pointer-events: none; z-index: 10; }
-  #hud .chip { background: rgba(0,0,0,0.55); padding: 6px 16px; border-radius: 999px; border: 2px solid #fff; }
-  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; background: rgba(0,0,0,0.75); z-index: 20; text-align: center; padding: 20px; }
-  #overlay h1 { font-size: 48px; margin-bottom: 8px; color: #ffd54f; text-shadow: 0 4px 8px #000; }
-  #overlay p { font-size: 18px; margin-bottom: 20px; max-width: 400px; line-height: 1.5; }
-  #overlay button { padding: 16px 40px; font-size: 22px; font-weight: bold; background: #ffd54f; border: none; border-radius: 12px; color: #222; cursor: pointer; box-shadow: 0 6px 0 #c9a227; }
-  #overlay button:active { transform: translateY(4px); box-shadow: 0 2px 0 #c9a227; }
+  #hud { position: fixed; top: 10px; left: 0; right: 0; display: flex; justify-content: center; gap: 10px; color: #fff; font-weight: bold; text-shadow: 0 2px 4px #000; font-size: 22px; pointer-events: none; z-index: 10; font-family: 'Russo One', system-ui, sans-serif; }
+  #hud .chip { background: rgba(0,0,0,0.55); padding: 6px 16px; border-radius: 999px; border: 2px solid #fff; letter-spacing: 1px; }
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; background: linear-gradient(180deg, #0d1030 0%, #352660 55%, #8b4a56 85%, #c97a3e 100%); z-index: 20; text-align: center; padding: 20px; overflow: hidden; }
+  .screen::before { content: ''; position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,0.6) 1.5px, transparent 1.5px); background-size: 60px 60px; background-position: 0 0, 30px 30px; opacity: 0.15; pointer-events: none; }
+  .title { font-family: 'Black Ops One', cursive; font-size: clamp(56px, 14vw, 108px); color: #ffd54f; text-shadow: 0 0 20px rgba(255, 170, 60, 0.6), 4px 6px 0 #8a3a10, 8px 12px 0 #4a1a00, 0 18px 30px rgba(0,0,0,0.7); letter-spacing: 3px; margin-bottom: 10px; line-height: 1; animation: titleWobble 3s ease-in-out infinite; }
+  .title .subtitle-tank { color: #64b5f6; text-shadow: 0 0 20px rgba(33, 150, 243, 0.6), 4px 6px 0 #0d47a1, 8px 12px 0 #050e2a, 0 18px 30px rgba(0,0,0,0.7); }
+  @keyframes titleWobble { 0%,100% { transform: translateY(0) rotate(-1deg);} 50% { transform: translateY(-6px) rotate(1deg);} }
+  .tagline { font-family: 'Russo One', system-ui, sans-serif; font-size: clamp(16px, 3.5vw, 22px); color: #fff; letter-spacing: 2px; margin-bottom: 34px; opacity: 0.9; text-transform: uppercase; text-shadow: 0 2px 4px #000; }
+  .menu { display: flex; flex-direction: column; gap: 14px; width: min(320px, 80vw); z-index: 1; }
+  .menu-btn { font-family: 'Black Ops One', cursive; padding: 16px 32px; font-size: 24px; letter-spacing: 3px; background: linear-gradient(180deg, #ffd54f 0%, #f9a825 100%); border: 3px solid #8a3a10; border-radius: 14px; color: #3a1a00; cursor: pointer; box-shadow: 0 8px 0 #8a3a10, 0 12px 20px rgba(0,0,0,0.5); transition: transform 0.05s, box-shadow 0.05s; text-shadow: 0 1px 0 rgba(255,255,255,0.3); }
+  .menu-btn:active { transform: translateY(6px); box-shadow: 0 2px 0 #8a3a10, 0 4px 10px rgba(0,0,0,0.5); }
+  .menu-btn.secondary { background: linear-gradient(180deg, #5c6bc0 0%, #1a237e 100%); border-color: #0d1040; color: #e8eaf6; box-shadow: 0 8px 0 #0d1040, 0 12px 20px rgba(0,0,0,0.5); }
+  .menu-btn.secondary:active { box-shadow: 0 2px 0 #0d1040, 0 4px 10px rgba(0,0,0,0.5); }
+  .panel { max-width: 520px; width: 100%; background: rgba(10, 10, 30, 0.85); border: 2px solid rgba(255, 213, 79, 0.4); border-radius: 16px; padding: 28px 26px; margin-bottom: 24px; z-index: 1; box-shadow: 0 12px 40px rgba(0,0,0,0.6); }
+  .panel h2 { font-family: 'Black Ops One', cursive; font-size: 36px; color: #ffd54f; letter-spacing: 3px; margin-bottom: 18px; text-shadow: 2px 3px 0 #8a3a10; }
+  .panel p, .panel li { font-size: 16px; line-height: 1.6; color: #e0e0e0; margin-bottom: 10px; }
+  .panel .row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); }
+  .panel .row:last-child { border-bottom: none; }
+  .panel .label { color: #90caf9; font-weight: bold; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; }
+  .panel .value { color: #fff; font-size: 15px; text-align: right; }
+  .panel ul { text-align: left; padding-left: 18px; }
+  .panel ul li::marker { color: #ffd54f; }
+  .panel .built-with { margin-top: 14px; text-align: center; font-size: 13px; color: #90caf9; letter-spacing: 1px; }
+  .version-tag { position: absolute; top: 16px; right: 16px; font-size: 12px; color: rgba(255,255,255,0.5); letter-spacing: 2px; z-index: 2; }
+  .menu-btn.run-btn { background: linear-gradient(180deg, #ab47bc 0%, #6a1b9a 100%); border-color: #38006b; color: #fff; box-shadow: 0 8px 0 #38006b, 0 12px 20px rgba(0,0,0,0.5); }
+  .menu-btn.run-btn:active { box-shadow: 0 2px 0 #38006b, 0 4px 10px rgba(0,0,0,0.5); }
+  .run-hud { position: fixed; top: 10px; left: 0; right: 0; display: flex; justify-content: center; gap: 10px; color: #fff; font-weight: bold; text-shadow: 0 2px 4px #000; font-size: 18px; pointer-events: none; z-index: 10; font-family: 'Russo One', system-ui, sans-serif; }
+  .run-hud .chip { background: rgba(0,0,0,0.6); padding: 6px 16px; border-radius: 999px; border: 2px solid #fff; letter-spacing: 1px; }
+  .run-hud .mob-chip { background: rgba(33, 150, 243, 0.8); border-color: #90caf9; }
+  .run-choice { position: fixed; inset: 0; z-index: 15; display: flex; pointer-events: none; }
+  .gate-btn { flex: 1; pointer-events: auto; background: transparent; border: none; cursor: pointer; }
+  .gate-btn:active { background: rgba(255,255,255,0.05); }
+  .gate-stack { display: none; }
+  .enemy-preview { position: absolute; top: 14vh; left: 0; right: 0; text-align: center; pointer-events: none; color: #ff8a80; font-family: 'Russo One', system-ui; font-size: clamp(16px, 3.5vw, 22px); letter-spacing: 2px; text-shadow: 0 2px 8px rgba(0,0,0,0.8); }
+  .enemy-preview b { color: #ff1744; font-size: 1.3em; }
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
-<div id="hud">
+<div id="hud" class="hidden">
   <div class="chip">HP: <span id="hp">10/10</span></div>
   <div class="chip">Shots: <span id="shots">1</span></div>
   <div class="chip">Wave: <span id="dist">0</span></div>
 </div>
-<div id="overlay">
-  <h1>MOB RUSH</h1>
-  <p>Drag to steer your tank. Middle lane = enemies. Side lanes = upgrade walls — shoot them for firepower. Don't let enemies reach you!</p>
-  <button id="startBtn">START</button>
+
+<!-- MAIN MENU -->
+<div id="menuScreen" class="screen">
+  <div class="version-tag">v1.0</div>
+  <h1 class="title">MOB<br><span class="subtitle-tank">TANK</span></h1>
+  <div class="tagline">Tank vs Endless Horde</div>
+  <div class="menu">
+    <button class="menu-btn" id="btnPlay">TANK MODE</button>
+    <button class="menu-btn run-btn" id="btnRun">MOB RUN</button>
+    <button class="menu-btn secondary" id="btnHow">HOW TO PLAY</button>
+    <button class="menu-btn secondary" id="btnCredits">CREDITS</button>
+  </div>
+</div>
+
+<!-- MOB RUN HUD -->
+<div id="runHud" class="run-hud hidden">
+  <div class="chip">Level <span id="runLevel">1</span></div>
+  <div class="chip">Round <span id="runRound">1</span>/3</div>
+  <div class="chip mob-chip">Mob: <span id="runMob">5</span></div>
+</div>
+
+<!-- MOB RUN GATE CHOICE -->
+<div id="runChoice" class="run-choice hidden">
+  <button class="gate-btn gate-left" id="gateLeft"><div class="gate-stack" id="gateLeftStack"></div></button>
+  <button class="gate-btn gate-right" id="gateRight"><div class="gate-stack" id="gateRightStack"></div></button>
+  <div class="enemy-preview"><span>ENEMY AHEAD: <b id="enemyPreview">60</b></span></div>
+</div>
+
+<!-- MOB RUN BATTLE RESULT -->
+<div id="runResult" class="screen hidden">
+  <div class="panel">
+    <h2 id="resultTitle">VICTORY!</h2>
+    <div class="row"><span class="label">Your mob</span><span class="value" id="resultYou">80</span></div>
+    <div class="row"><span class="label">Enemy</span><span class="value" id="resultEnemy">60</span></div>
+    <div class="row"><span class="label">Remaining</span><span class="value" id="resultRemain">20</span></div>
+  </div>
+  <div class="menu">
+    <button class="menu-btn" id="btnNextRound">CONTINUE</button>
+  </div>
+</div>
+
+<!-- MOB RUN LEVEL COMPLETE -->
+<div id="runLevelDone" class="screen hidden">
+  <h1 class="title" style="font-size: clamp(40px, 9vw, 64px);">LEVEL CLEARED!</h1>
+  <div class="panel">
+    <div class="row"><span class="label">Level</span><span class="value" id="doneLevel">1</span></div>
+    <div class="row"><span class="label">Mob strength</span><span class="value" id="doneMob">20</span></div>
+  </div>
+  <div class="menu">
+    <button class="menu-btn" id="btnNextLevel">NEXT LEVEL</button>
+    <button class="menu-btn secondary" id="btnRunMenu">MAIN MENU</button>
+  </div>
+</div>
+
+<!-- MOB RUN GAME OVER -->
+<div id="runGameOver" class="screen hidden">
+  <h1 class="title" style="font-size: clamp(40px, 9vw, 64px);">DEFEATED</h1>
+  <div class="panel">
+    <p style="text-align:center">Your mob was wiped out.</p>
+    <div class="row"><span class="label">Level reached</span><span class="value" id="goRunLevel">1</span></div>
+  </div>
+  <div class="menu">
+    <button class="menu-btn" id="btnRunRetry">RETRY LEVEL</button>
+    <button class="menu-btn secondary" id="btnRunMenu2">MAIN MENU</button>
+  </div>
+</div>
+
+<!-- HOW TO PLAY -->
+<div id="howScreen" class="screen hidden">
+  <div class="panel">
+    <h2>HOW TO PLAY</h2>
+    <ul>
+      <li><b>Drag</b> left or right to steer the tank.</li>
+      <li>Tank auto-fires a stream of blue soldiers forward.</li>
+      <li><b>Middle lane</b> is the enemy lane — stay centered to kill incoming reds.</li>
+      <li><b>Left lane</b> has <b>+N</b> walls — adds to your shots per volley (easy, fast to break).</li>
+      <li><b>Right lane</b> has <b>×N</b> walls — multiplies your shots (hard, huge payoff).</li>
+      <li>Bosses appear every few waves with scaling HP — pound them down before they reach you.</li>
+      <li>Tank HP is 10. Each enemy that reaches you = -1 HP (boss = -5). At 0 HP you're overrun.</li>
+    </ul>
+  </div>
+  <div class="menu">
+    <button class="menu-btn secondary" id="btnBackHow">BACK</button>
+  </div>
+</div>
+
+<!-- CREDITS -->
+<div id="creditsScreen" class="screen hidden">
+  <div class="panel">
+    <h2>CREDITS</h2>
+    <div class="row"><span class="label">Made by</span><span class="value">AtAt</span></div>
+    <div class="row"><span class="label">Role</span><span class="value">Design · Code · Art</span></div>
+    <div class="row"><span class="label">Origin</span><span class="value">Saudi Arabia 🇸🇦</span></div>
+    <div class="row"><span class="label">GitHub</span><span class="value">@aboudat</span></div>
+    <div class="row"><span class="label">First Game</span><span class="value">Yep — this is it</span></div>
+    <div class="row"><span class="label">Year</span><span class="value">2026</span></div>
+    <div class="built-with">Built with HTML5 Canvas + a whole lot of caffeine.<br>Paired with Claude Code for rubber-duck debugging.</div>
+  </div>
+  <div class="menu">
+    <button class="menu-btn secondary" id="btnBackCredits">BACK</button>
+  </div>
+</div>
+
+<!-- GAME OVER -->
+<div id="gameOverScreen" class="screen hidden">
+  <h1 class="title" style="font-size: clamp(40px, 10vw, 72px);">OVERRUN!</h1>
+  <div class="panel">
+    <div class="row"><span class="label">Waves survived</span><span class="value" id="goWaves">0</span></div>
+    <div class="row"><span class="label">Shots / volley</span><span class="value" id="goShots">1</span></div>
+  </div>
+  <div class="menu">
+    <button class="menu-btn" id="btnRetry">RETRY</button>
+    <button class="menu-btn secondary" id="btnMenu">MAIN MENU</button>
+  </div>
 </div>
 
 <script>
@@ -50,8 +191,28 @@ if ('serviceWorker' in navigator) {
   const shotsEl = document.getElementById('shots');
   const distEl = document.getElementById('dist');
   const hpEl = document.getElementById('hp');
-  const overlay = document.getElementById('overlay');
-  const startBtn = document.getElementById('startBtn');
+  const hud = document.getElementById('hud');
+  const menuScreen = document.getElementById('menuScreen');
+  const howScreen = document.getElementById('howScreen');
+  const creditsScreen = document.getElementById('creditsScreen');
+  const gameOverScreen = document.getElementById('gameOverScreen');
+  const goWavesEl = document.getElementById('goWaves');
+  const goShotsEl = document.getElementById('goShots');
+  // Run-mode elements
+  const runHud = document.getElementById('runHud');
+  const runChoice = document.getElementById('runChoice');
+  const runResult = document.getElementById('runResult');
+  const runLevelDone = document.getElementById('runLevelDone');
+  const runGameOver = document.getElementById('runGameOver');
+  function showScreen(el) {
+    const screens = [menuScreen, howScreen, creditsScreen, gameOverScreen, runResult, runLevelDone, runGameOver];
+    for (const s of screens) s.classList.add('hidden');
+    if (el) el.classList.remove('hidden');
+    // Tank HUD visible only when playing tank mode actively
+    hud.classList.toggle('hidden', el !== null || state.gameMode !== 'tank');
+    runHud.classList.toggle('hidden', !(el === null && state.gameMode === 'run'));
+    runChoice.classList.toggle('hidden', !(el === null && state.gameMode === 'run' && state.run && state.run.phase === 'choosing'));
+  }
 
   let W = 0, H = 0, DPR = Math.min(window.devicePixelRatio || 1, 2);
   let bgCanvas = null;
@@ -67,13 +228,23 @@ if ('serviceWorker' in navigator) {
   // --- Perspective / world ---
   // World has (x, z). x = horizontal position. z = depth, 0=tank plane, 1=far horizon.
   // Tank is at z=0. Enemies start at z≈1.1, move toward z=0. Allies start at z=0, move toward z=1.
-  const HORIZON_FRAC = 0.28;            // y-fraction of screen for horizon
-  const PERSP_SHRINK = 0.82;            // how tiny things get at horizon (0..1)
-  const TANK_SCREEN_Y = () => H - 120;
-  const HORIZON_Y = () => H * HORIZON_FRAC;
+  // Perspective parameters adapt to aspect ratio so portrait mobile doesn't
+  // end up with skinny, elongated lanes.
+  function layout() {
+    const aspect = W / H;
+    if (aspect < 0.7) {      // tall portrait (most phones)
+      return { sideFrac: 0.27, horizonFrac: 0.34, perspShrink: 0.70 };
+    } else if (aspect < 1.0) { // narrower-than-square (small tablets portrait)
+      return { sideFrac: 0.32, horizonFrac: 0.31, perspShrink: 0.78 };
+    } else {                 // desktop / landscape
+      return { sideFrac: 0.38, horizonFrac: 0.28, perspShrink: 0.82 };
+    }
+  }
+  const TANK_SCREEN_Y = () => H - Math.max(80, H * 0.12);
+  const HORIZON_Y = () => H * layout().horizonFrac;
   function project(wx, z) {
     const t = Math.max(0, Math.min(1.2, z));
-    const scale = 1 - t * PERSP_SHRINK;        // 1 near, ~0.02 far
+    const scale = 1 - t * layout().perspShrink;
     const sy = TANK_SCREEN_Y() - t * (TANK_SCREEN_Y() - HORIZON_Y());
     const cx = W / 2;
     const sx = cx + (wx - cx) * scale;
@@ -81,9 +252,9 @@ if ('serviceWorker' in navigator) {
   }
 
   function lanes() {
-    const edge = Math.max(20, W * 0.03);
+    const edge = Math.max(14, W * 0.025);
     const total = W - edge * 2;
-    const side = total * 0.38;
+    const side = total * layout().sideFrac;
     const mid = total - side * 2;
     return {
       leftX: edge + side / 2,
@@ -108,6 +279,7 @@ if ('serviceWorker' in navigator) {
 
   const state = {
     running: false,
+    gameMode: null,     // 'tank' | 'run' | null (menu)
     tankX: 0,
     shots: 1,
     hp: MAX_TANK_HP,
@@ -130,6 +302,7 @@ if ('serviceWorker' in navigator) {
     recoil: 0,
     muzzleFlash: 0,
     treadOffset: 0,
+    run: null,          // populated when entering mob run mode
   };
 
   function rand(a, b) { return a + Math.random() * (b - a); }
@@ -288,7 +461,6 @@ if ('serviceWorker' in navigator) {
   function update(dt) {
     if (!state.running) return;
     const L = lanes();
-    state.time += dt;
 
     if (targetX != null) {
       const dx = targetX - state.tankX;
@@ -1141,26 +1313,624 @@ if ('serviceWorker' in navigator) {
 
   function gameOver() {
     state.running = false;
-    overlay.classList.remove('hidden');
-    overlay.querySelector('h1').textContent = 'OVERRUN!';
-    overlay.querySelector('p').textContent = 'Survived ' + state.waveIndex + ' waves with ' + state.shots + ' shots/volley. Tap to retry.';
-    startBtn.textContent = 'RETRY';
+    goWavesEl.textContent = state.waveIndex;
+    goShotsEl.textContent = state.shots;
+    showScreen(gameOverScreen);
+  }
+
+  // ---------- MOB RUN MODE ----------
+  const RUN_LEVEL_EL = document.getElementById('runLevel');
+  const RUN_ROUND_EL = document.getElementById('runRound');
+  const RUN_MOB_EL = document.getElementById('runMob');
+  const ENEMY_PREVIEW_EL = document.getElementById('enemyPreview');
+  const GATE_LEFT_LABEL = document.querySelector('#gateLeft .gate-label');
+  const GATE_RIGHT_LABEL = document.querySelector('#gateRight .gate-label');
+
+  const MOB_CAP = 99999;
+
+  function applyGate(mob, g) {
+    let r = mob;
+    switch (g.op) {
+      case 'add': r = mob + g.value; break;
+      case 'sub': r = Math.max(0, mob - g.value); break;
+      case 'mul': r = mob * g.value; break;
+      case 'div': r = Math.max(0, Math.floor(mob / g.value)); break;
+      case 'sq':   r = mob * mob; break;
+      case 'sqrt': r = Math.max(0, Math.floor(Math.sqrt(mob))); break;
+      case 'd2x':  r = 2 * mob; break;           // d/dx(x²) = 2x
+      case 'd3x':  r = 3 * mob * mob; break;     // d/dx(x³) = 3x²
+      case 'ix':   r = Math.floor(mob * mob / 2); break;  // ∫x dx = x²/2
+      case 'pyt':  r = Math.floor(Math.sqrt(mob * mob + g.value * g.value)); break;
+      case 'circ': r = Math.floor(6.283 * mob); break; // 2πr
+    }
+    return Math.min(MOB_CAP, r);
+  }
+
+  function gateLabelStr(g) {
+    switch (g.op) {
+      case 'add': return '+' + g.value;
+      case 'sub': return '-' + g.value;
+      case 'mul': return '×' + g.value;
+      case 'div': return '÷' + g.value;
+      case 'sq':  return 'x²';
+      case 'sqrt':return '√x';
+      case 'd2x': return "d/dx(x²)";
+      case 'd3x': return "d/dx(x³)";
+      case 'ix':  return '∫x dx';
+      case 'pyt': return '√(x²+' + (g.value * g.value) + ')';
+      case 'circ':return '2πr';
+    }
+    return '?';
+  }
+
+  // Operator pools per level tier.
+  function opsForLevel(level) {
+    const pool = [];
+    // Tier 1: +, -, ×  (levels 1–3)
+    pool.push({ op: 'add', min: 3, max: 20 });
+    pool.push({ op: 'add', min: 10, max: 50 });
+    pool.push({ op: 'mul', valueOpts: [2, 3] });
+    if (level >= 2) pool.push({ op: 'sub', min: 2, max: 6 });
+    // Tier 2: ÷ (levels 4+)
+    if (level >= 4) {
+      pool.push({ op: 'div', valueOpts: [2, 3] });
+      pool.push({ op: 'mul', valueOpts: [4] });
+    }
+    // Tier 3: squares & roots (levels 7+)
+    if (level >= 7) {
+      pool.push({ op: 'sqrt' });
+      pool.push({ op: 'sq' });
+    }
+    // Tier 4: derivatives / integrals (levels 10+)
+    if (level >= 10) {
+      pool.push({ op: 'd2x' });
+      pool.push({ op: 'ix' });
+    }
+    if (level >= 12) pool.push({ op: 'd3x' });
+    // Tier 5: formulas (levels 13+)
+    if (level >= 13) {
+      pool.push({ op: 'pyt', valueOpts: [3, 4, 5] });
+      pool.push({ op: 'circ' });
+    }
+    return pool;
+  }
+
+  function instantiateOp(proto) {
+    const g = { op: proto.op };
+    if (proto.valueOpts) g.value = proto.valueOpts[Math.floor(Math.random() * proto.valueOpts.length)];
+    else if (proto.min !== undefined) g.value = proto.min + Math.floor(Math.random() * (proto.max - proto.min + 1));
+    return g;
+  }
+
+  function applyPath(mob, path) {
+    let m = mob;
+    for (const g of path) m = applyGate(m, g);
+    return m;
+  }
+
+  // Generate two PATHS (each a sequence of gates) with at least one beating enemy.
+  function makePathPair(mob, enemy, level) {
+    const pool = opsForLevel(level);
+    const maxGates = Math.min(5, 1 + Math.floor(level / 2));
+    function genPath(len) {
+      const p = [];
+      for (let i = 0; i < len; i++) p.push(instantiateOp(pool[Math.floor(Math.random() * pool.length)]));
+      return p;
+    }
+    let A = null, B = null;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const lenA = 1 + Math.floor(Math.random() * maxGates);
+      const lenB = 1 + Math.floor(Math.random() * maxGates);
+      const a = genPath(lenA);
+      const b = genPath(lenB);
+      const mA = applyPath(mob, a);
+      const mB = applyPath(mob, b);
+      const aWins = mA > enemy;
+      const bWins = mB > enemy;
+      // Prefer: at least one winner, results differ so choice matters
+      if ((aWins || bWins) && Math.abs(mA - mB) > enemy * 0.1) {
+        A = a; B = b; break;
+      }
+      // fallback record if nothing perfect yet
+      if ((aWins || bWins) && !A) { A = a; B = b; }
+    }
+    if (!A) {
+      // guarantee survival via one single-gate path
+      const need = Math.max(3, enemy - mob + Math.floor(enemy * 0.3) + 1);
+      A = [{ op: 'add', value: need }];
+      B = genPath(maxGates);
+    }
+    return Math.random() < 0.5 ? { pathA: A, pathB: B } : { pathA: B, pathB: A };
+  }
+
+  // Enemy sizes scale per level & round.
+  function enemyForRound(level, round) {
+    const levelBase = [6, 12, 20, 40, 70, 130, 260, 500, 1000, 2500, 6000, 15000, 40000, 120000, 350000];
+    const base = levelBase[Math.min(level - 1, levelBase.length - 1)];
+    const factor = 1 + round * 0.55;
+    const jitter = 0.85 + Math.random() * 0.3;
+    return Math.max(1, Math.floor(base * factor * jitter));
+  }
+
+  function startRun(level) {
+    state.gameMode = 'run';
+    state.running = true;
+    const lvl = level || 1;
+    state.run = {
+      level: lvl,
+      round: 0,
+      mob: 5 + (lvl - 1) * 2,
+      pathA: null, pathB: null,
+      enemy: 0,
+      phase: 'choosing',   // 'choosing' | 'walking' | 'battling' | 'cleared'
+      mobs: [], enemies: [],
+      walkingPath: null, walkingIdx: 0, walkTimer: 0,
+      battleTimer: 0, animT: 0,
+    };
+    setupRound();
+    showScreen(null);
+  }
+
+  function buildGateStackHTML(path, side) {
+    const el = document.getElementById(side === 'left' ? 'gateLeftStack' : 'gateRightStack');
+    el.innerHTML = '';
+    for (const g of path) {
+      const span = document.createElement('span');
+      span.className = 'gate-label';
+      span.textContent = gateLabelStr(g);
+      el.appendChild(span);
+    }
+  }
+
+  function setupRound() {
+    const r = state.run;
+    r.enemy = enemyForRound(r.level, r.round);
+    const pair = makePathPair(r.mob, r.enemy, r.level);
+    r.pathA = pair.pathA;
+    r.pathB = pair.pathB;
+    r.phase = 'choosing';
+    r.animT = 0;
+    r.battleTimer = 0;
+    r.walkTimer = 0;
+    r.walkingIdx = 0;
+    r.walkingPath = null;
+    // Visual cluster sync
+    r.mobs = [];
+    for (let i = 0; i < Math.min(r.mob, 60); i++) r.mobs.push({ x: rand(-30, 30), y: rand(-20, 20), phase: rand(0, Math.PI * 2), dead: false });
+    r.enemies = [];
+    for (let i = 0; i < Math.min(r.enemy, 60); i++) r.enemies.push({ x: rand(-60, 60), y: rand(-30, 30), phase: rand(0, Math.PI * 2), dead: false });
+    updateRunHUD();
+    buildGateStackHTML(r.pathA, 'left');
+    buildGateStackHTML(r.pathB, 'right');
+    ENEMY_PREVIEW_EL.textContent = r.enemy;
+    showScreen(null);
+  }
+
+  function updateRunHUD() {
+    const r = state.run; if (!r) return;
+    RUN_LEVEL_EL.textContent = r.level;
+    RUN_ROUND_EL.textContent = r.round + 1;
+    RUN_MOB_EL.textContent = r.mob;
+  }
+
+  function pathGateZs(N) {
+    // z[0] near camera, z[N-1] far (close to enemy)
+    const zNear = 0.18, zFar = 0.7;
+    const zs = [];
+    for (let i = 0; i < N; i++) {
+      const z = N === 1 ? 0.42 : zNear + (zFar - zNear) * (i / (N - 1));
+      zs.push(z);
+    }
+    return zs;
+  }
+
+  function pickGate(idx) {
+    const r = state.run;
+    if (!r || r.phase !== 'choosing') return;
+    r.walkingPath = idx === 0 ? r.pathA : r.pathB;
+    r.pickedSide = idx;
+    r.pickedSideX = idx === 0 ? W * 0.3 : W * 0.7;
+    r.walkingGateZs = pathGateZs(r.walkingPath.length);
+    r.walkingApplied = new Array(r.walkingPath.length).fill(false);
+    r.phase = 'walking';
+    r.walkTimer = 0;
+    r.walkDuration = 1.4 + r.walkingPath.length * 0.5;
+    r.mobZ = 0.05;
+    r.mobX = W / 2;
+    r.animT = 0;
+    r.pops = [];
+    runChoice.classList.add('hidden');
+  }
+
+  function syncVisualMob() {
+    const r = state.run;
+    const target = Math.min(r.mob, 60);
+    while (r.mobs.length < target) r.mobs.push({ x: rand(-30, 30), y: rand(-20, 20), phase: rand(0, Math.PI * 2), dead: false });
+    if (r.mobs.length > target) r.mobs.length = target;
+  }
+
+  function updateRun(dt) {
+    const r = state.run; if (!r) return;
+    r.animT += dt;
+
+    if (r.phase === 'walking') {
+      r.walkTimer += dt;
+      const t = Math.min(1, r.walkTimer / r.walkDuration);
+      // smooth z progression from 0.05 to 0.55
+      r.mobZ = 0.05 + (0.55 - 0.05) * t;
+      // x sway to chosen side mid-walk, returning to center near battle
+      const sideBias = Math.sin(Math.min(1, t / 0.8) * Math.PI);
+      r.mobX = W / 2 + (r.pickedSideX - W / 2) * sideBias;
+      // Check if mob has reached any unapplied gates
+      for (let i = 0; i < r.walkingPath.length; i++) {
+        if (!r.walkingApplied[i] && r.mobZ >= r.walkingGateZs[i]) {
+          r.mob = applyGate(r.mob, r.walkingPath[i]);
+          r.walkingApplied[i] = true;
+          if (!r.pops) r.pops = [];
+          r.pops.push({
+            label: gateLabelStr(r.walkingPath[i]),
+            mobAfter: r.mob,
+            x: r.mobX,
+            z: r.walkingGateZs[i],
+            time: state.time,
+          });
+          updateRunHUD();
+          syncVisualMob();
+        }
+      }
+      // cleanup old pops
+      if (r.pops) r.pops = r.pops.filter(p => state.time - p.time < 1.0);
+      if (t >= 1) {
+        // Apply any remaining unapplied gates (safety)
+        for (let i = 0; i < r.walkingPath.length; i++) {
+          if (!r.walkingApplied[i]) {
+            r.mob = applyGate(r.mob, r.walkingPath[i]);
+            r.walkingApplied[i] = true;
+          }
+        }
+        updateRunHUD();
+        syncVisualMob();
+        r.phase = 'battling';
+        r.battleTimer = 0;
+        r.animT = 0;
+        r.mobZ = 0.55;
+        r.mobX = W / 2;
+      }
+    } else if (r.phase === 'battling') {
+      if (!r.battleInit) {
+        r.battleInit = true;
+        r.initialMob = r.mob;
+        r.initialEnemy = r.enemy;
+        r.killsTotal = Math.min(r.initialMob, r.initialEnemy);
+        r.visualKillsTotal = Math.min(r.mobs.length, r.enemies.length);
+        r.killsIssued = 0;
+        r.battleDuration = Math.min(2.2, 0.8 + Math.log(1 + r.killsTotal) * 0.22);
+      }
+      r.battleTimer += dt;
+      const progress = Math.min(1, r.battleTimer / r.battleDuration);
+      const numericKills = Math.floor(progress * r.killsTotal);
+      r.mob = r.initialMob - numericKills;
+      r.enemy = r.initialEnemy - numericKills;
+      updateRunHUD();
+      // Issue visual clash pairs, scaled to visual cluster size
+      const targetVisualKills = Math.floor(progress * r.visualKillsTotal);
+      while (r.killsIssued < targetVisualKills) {
+        const a = r.mobs.find(m => !m.clashing && !m.dead);
+        const e = r.enemies.find(m => !m.clashing && !m.dead);
+        if (!a || !e) break;
+        a.clashing = true; a.clashStart = state.time;
+        e.clashing = true; e.clashStart = state.time;
+        r.killsIssued++;
+      }
+      if (progress >= 1 && r.animT > 0.4) {
+        const remain = r.initialMob - r.initialEnemy;
+        r.pastMob = r.initialMob;
+        r.pastEnemy = r.initialEnemy;
+        r.mob = Math.max(0, remain);
+        r.enemy = 0;
+        updateRunHUD();
+        if (r.mob <= 0) {
+          state.running = false;
+          document.getElementById('goRunLevel').textContent = r.level;
+          showScreen(runGameOver);
+          return;
+        }
+        r.phase = 'cleared';
+        r.animT = 0;
+        r.battleInit = false;
+      }
+    } else if (r.phase === 'cleared') {
+      if (r.animT > 1.2) {
+        r.round++;
+        if (r.round >= 3) {
+          document.getElementById('doneLevel').textContent = r.level;
+          document.getElementById('doneMob').textContent = r.mob;
+          state.running = false;
+          showScreen(runLevelDone);
+        } else {
+          setupRound();
+        }
+      }
+    }
+  }
+
+  function renderRun() {
+    // Paint perspective background similar to tank mode
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, W, H);
+    const L = lanes();
+    const HY = HORIZON_Y();
+    // sky
+    const sky = ctx.createLinearGradient(0, 0, 0, HY);
+    sky.addColorStop(0, '#1a1a3a'); sky.addColorStop(1, '#6a3a6e');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, HY);
+    // ground
+    const ground = ctx.createLinearGradient(0, HY, 0, H);
+    ground.addColorStop(0, '#5d3a1f'); ground.addColorStop(1, '#c9a66b');
+    ctx.fillStyle = ground;
+    ctx.fillRect(0, HY, W, H - HY);
+
+    // Road: single wide path narrowing to horizon
+    const roadTopW = W * 0.18;
+    const roadBotW = W * 0.85;
+    const y0 = H - 10;
+    ctx.fillStyle = '#3a3a44';
+    ctx.beginPath();
+    ctx.moveTo(W/2 - roadTopW/2, HY);
+    ctx.lineTo(W/2 + roadTopW/2, HY);
+    ctx.lineTo(W/2 + roadBotW/2, y0);
+    ctx.lineTo(W/2 - roadBotW/2, y0);
+    ctx.closePath();
+    ctx.fill();
+    // road edges
+    ctx.strokeStyle = '#ffb300';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(W/2 - roadTopW/2, HY); ctx.lineTo(W/2 - roadBotW/2, y0);
+    ctx.moveTo(W/2 + roadTopW/2, HY); ctx.lineTo(W/2 + roadBotW/2, y0);
+    ctx.stroke();
+
+    const r = state.run; if (!r) return;
+
+    // Enemy and mob positions depend on phase. During battle the two clusters push into each other.
+    let mobX = W / 2, mobZ = 0.05;
+    let enemyZ = 0.85;
+    if (r.phase === 'walking') { mobX = r.mobX; mobZ = r.mobZ; }
+    else if (r.phase === 'battling') {
+      // Both sides crash into middle — small oscillating push based on who's winning
+      const progress = Math.min(1, r.battleTimer / 1.2);
+      mobZ = 0.48 + progress * 0.06 + Math.sin(r.battleTimer * 12) * 0.008;
+      enemyZ = 0.62 - progress * 0.06 - Math.sin(r.battleTimer * 12) * 0.008;
+      mobX = W / 2;
+    }
+    else if (r.phase === 'cleared') {
+      mobZ = 0.52;
+      enemyZ = 0.6;
+    }
+    drawRunCluster(r.enemies, W / 2, enemyZ, SPR_ENEMY, r.enemy, '#ef5350', true);
+    drawRunCluster(r.mobs, mobX, mobZ, SPR_ALLY, r.mob, '#42a5f5', false);
+
+    // Two-path gate sequences — show both when choosing, only the picked one when walking
+    if (r.phase === 'choosing' && r.pathA && r.pathB) {
+      drawPathSequence(r.pathA, W * 0.3, r.walkingApplied);
+      drawPathSequence(r.pathB, W * 0.7, null);
+    } else if (r.phase === 'walking' && r.walkingPath) {
+      drawPathSequence(r.walkingPath, r.pickedSideX, r.walkingApplied);
+    }
+
+    // Render ALL active gate pops (not just the latest) for each gate the mob has crossed
+    if (r.pops && r.pops.length) {
+      for (const pop of r.pops) {
+        const age = state.time - pop.time;
+        const POP_DUR = 0.9;
+        if (age >= POP_DUR || age < 0) continue;
+        const t = age / POP_DUR;
+        const alpha = 1 - t;
+        ctx.globalAlpha = alpha;
+        const p = project(pop.x, pop.z);
+        const fs = Math.max(26, 56 * p.scale) * (1 + t * 0.6);
+        ctx.fillStyle = '#ffd54f';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 5;
+        ctx.font = '900 ' + fs + 'px "Black Ops One", cursive';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const yOff = -t * 70;
+        ctx.strokeText(pop.label, p.sx, p.sy + yOff);
+        ctx.fillText(pop.label, p.sx, p.sy + yOff);
+        // Show the new mob count below the op label
+        ctx.fillStyle = '#ffffff';
+        const fs2 = fs * 0.65;
+        ctx.font = '900 ' + fs2 + 'px "Black Ops One", cursive';
+        ctx.strokeText('= ' + pop.mobAfter, p.sx, p.sy + yOff + fs * 0.7);
+        ctx.fillText('= ' + pop.mobAfter, p.sx, p.sy + yOff + fs * 0.7);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Battle particles
+    if (r.phase === 'battling') {
+      for (let i = 0; i < 2; i++) {
+        const p = project(W / 2 + rand(-60, 60), 0.45);
+        ctx.fillStyle = ['#ffeb3b','#ff5252','#fff'][Math.floor(Math.random() * 3)];
+        ctx.fillRect(p.sx, p.sy, 4, 4);
+      }
+    }
+
+    // Cleared flash
+    if (r.phase === 'cleared') {
+      ctx.globalAlpha = Math.max(0, 1 - r.animT);
+      ctx.fillStyle = '#4caf50';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 8;
+      ctx.font = '900 ' + (Math.min(W, H) * 0.12) + 'px "Black Ops One", cursive';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const msg = 'WAVE ' + (r.round + 1) + ' CLEARED';
+      ctx.strokeText(msg, W / 2, H / 2);
+      ctx.fillText(msg, W / 2, H / 2);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawPathSequence(path, cx, appliedArr) {
+    const N = path.length;
+    const zs = pathGateZs(N);
+    // draw far gates first (for proper overlap)
+    const order = zs.map((z, i) => ({ z, i })).sort((a, b) => b.z - a.z);
+    for (const { z, i } of order) {
+      const consumed = appliedArr ? appliedArr[i] : false;
+      drawRunGate(path[i], cx, z, consumed);
+    }
+  }
+
+  function drawRunCluster(visualArr, cx, z, sprite, count, color, isEnemy) {
+    const p = project(cx, z);
+    const s = p.scale;
+    // count label
+    ctx.font = '900 ' + Math.max(16, 36 * s) + 'px "Black Ops One", cursive';
+    ctx.fillStyle = color;
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = Math.max(2, 6 * s);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const label = String(count);
+    ctx.strokeText(label, p.sx, p.sy - 80 * s);
+    ctx.fillText(label, p.sx, p.sy - 80 * s);
+
+    const CLASH_DUR = 0.4;
+    for (const m of visualArr) {
+      if (m.dead) continue;
+      const baseX = p.sx + m.x * s * 1.4;
+      const baseY = p.sy + m.y * s * 0.8;
+      if (m.clashing) {
+        const age = state.time - m.clashStart;
+        if (age >= CLASH_DUR) { m.dead = true; continue; }
+        const t = age / CLASH_DUR;
+        const lungeY = (isEnemy ? +1 : -1) * t * 50 * s;
+        const alpha = 1 - t;
+        const size = sprite.size * s * 0.8 * (1 + t * 0.4);
+        ctx.globalAlpha = alpha;
+        ctx.drawImage(sprite.canvas, baseX - size / 2, baseY + lungeY - size / 2, size, size);
+        ctx.globalAlpha = 1;
+        // a small puff at end of lunge
+        if (t > 0.55) {
+          const puffAlpha = (t - 0.55) / 0.45;
+          ctx.fillStyle = 'rgba(255, 230, 140,' + (1 - puffAlpha) + ')';
+          ctx.beginPath();
+          ctx.arc(baseX, baseY + lungeY, 12 * s * (1 + puffAlpha), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        const bob = Math.sin(state.time * 10 + m.phase) * 3 * s;
+        const size = sprite.size * s * 0.8;
+        ctx.drawImage(sprite.canvas, baseX - size / 2, baseY + bob - size / 2, size, size);
+      }
+    }
+  }
+
+  function drawRunGate(gate, cx, z, consumed) {
+    const p = project(cx, z);
+    const w = 140 * p.scale;
+    const h = 95 * p.scale;
+    const good = gate.op === 'add' || gate.op === 'mul' || gate.op === 'sq' || gate.op === 'd2x' || gate.op === 'd3x' || gate.op === 'ix' || gate.op === 'circ';
+    const x = p.sx - w / 2, y = p.sy - h;
+    ctx.globalAlpha = consumed ? 0.25 : 1;
+    // glow (only if not consumed)
+    if (!consumed) {
+      const gg = ctx.createRadialGradient(p.sx, p.sy - h/2, w*0.1, p.sx, p.sy - h/2, w*0.95);
+      gg.addColorStop(0, good ? 'rgba(0,229,255,0.55)' : 'rgba(239,83,80,0.55)');
+      gg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gg;
+      ctx.fillRect(x - w * 0.5, y - h * 0.3, w * 2, h * 1.6);
+    }
+    // body
+    const bg = ctx.createLinearGradient(0, y, 0, y + h);
+    if (good) { bg.addColorStop(0, '#00e5ff'); bg.addColorStop(0.5, '#00acc1'); bg.addColorStop(1, '#00363d'); }
+    else { bg.addColorStop(0, '#ef5350'); bg.addColorStop(1, '#7f0000'); }
+    ctx.fillStyle = bg;
+    ctx.fillRect(x, y, w, h);
+    // corrugated texture
+    const ridges = 5;
+    const rw = w / ridges;
+    for (let i = 0; i < ridges; i++) {
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(x + i * rw, y, rw * 0.15, h);
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillRect(x + i * rw + rw * 0.55, y, rw * 0.1, h);
+    }
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = Math.max(1.5, 3 * p.scale);
+    ctx.strokeRect(x, y, w, h);
+    // label
+    ctx.font = '900 ' + Math.max(14, 36 * p.scale) + 'px "Black Ops One", cursive';
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = Math.max(2, 5 * p.scale);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const lbl = gateLabelStr(gate);
+    ctx.strokeText(lbl, p.sx, y + h/2);
+    ctx.fillText(lbl, p.sx, y + h/2);
+    ctx.globalAlpha = 1;
   }
 
   function loop(ts) {
     if (!state.lastTime) state.lastTime = ts;
     const dt = Math.min(0.05, (ts - state.lastTime) / 1000);
     state.lastTime = ts;
-    update(dt);
-    render();
+    state.time += dt;
+    if (state.gameMode === 'tank') {
+      update(dt);
+      render();
+    } else if (state.gameMode === 'run') {
+      if (state.running) updateRun(dt);
+      renderRun();
+    } else {
+      // idle — paint nothing; menu screen on top
+    }
     requestAnimationFrame(loop);
   }
 
-  startBtn.addEventListener('click', () => {
+  function startGame() {
+    state.gameMode = 'tank';
     reset();
     state.running = true;
-    overlay.classList.add('hidden');
+    showScreen(null);
+  }
+
+  document.getElementById('btnPlay').addEventListener('click', startGame);
+  document.getElementById('btnRetry').addEventListener('click', startGame);
+  document.getElementById('btnHow').addEventListener('click', () => showScreen(howScreen));
+  document.getElementById('btnCredits').addEventListener('click', () => showScreen(creditsScreen));
+  document.getElementById('btnBackHow').addEventListener('click', () => showScreen(menuScreen));
+  document.getElementById('btnBackCredits').addEventListener('click', () => showScreen(menuScreen));
+  document.getElementById('btnMenu').addEventListener('click', () => { state.gameMode = null; showScreen(menuScreen); });
+  // Mob Run wiring
+  document.getElementById('btnRun').addEventListener('click', () => startRun(1));
+  document.getElementById('gateLeft').addEventListener('click', () => pickGate(0));
+  document.getElementById('gateRight').addEventListener('click', () => pickGate(1));
+  document.getElementById('btnNextRound').addEventListener('click', () => {
+    const r = state.run; if (!r) return;
+    r.round++;
+    if (r.round >= 3) {
+      document.getElementById('doneLevel').textContent = r.level;
+      document.getElementById('doneMob').textContent = r.mob;
+      state.running = false;
+      showScreen(runLevelDone);
+    } else {
+      state.running = true;
+      setupRound();
+    }
   });
+  document.getElementById('btnNextLevel').addEventListener('click', () => {
+    const r = state.run;
+    startRun((r ? r.level : 0) + 1);
+  });
+  document.getElementById('btnRunMenu').addEventListener('click', () => { state.gameMode = null; state.run = null; showScreen(menuScreen); });
+  document.getElementById('btnRunRetry').addEventListener('click', () => { const r = state.run; startRun(r ? r.level : 1); });
+  document.getElementById('btnRunMenu2').addEventListener('click', () => { state.gameMode = null; state.run = null; showScreen(menuScreen); });
 
   requestAnimationFrame(loop);
 })();
