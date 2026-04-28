@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.netlify.mobtank.twa",
+        "sha256_cert_fingerprints": ["EB:78:23:14:AB:4B:16:C5:06:9B:CD:5B:CF:AD:8D:05:E7:61:27:9E:C8:66:2B:39:0E:CE:3C:F3:5D:FC:E8:E9"]
+      }
+    }]
