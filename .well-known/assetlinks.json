@@ -1,8 +1,11 @@
 [{
-      "relation": ["delegate_permission/common.handle_all_urls"],
-      "target": {
-        "namespace": "android_app",
-        "package_name": "app.netlify.mobtank.twa",
-        "sha256_cert_fingerprints": ["EB:78:23:14:AB:4B:16:C5:06:9B:CD:5B:CF:AD:8D:05:E7:61:27:9E:C8:66:2B:39:0E:CE:3C:F3:5D:FC:E8:E9"]
-      }
-    }]
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "app.netlify.mobtank.twa",
+    "sha256_cert_fingerprints": [
+      "EB:78:23:14:AB:4B:16:C5:06:9B:CD:5B:CF:AD:8D:05:E7:61:27:9E:C8:66:2B:39:0E:CE:3C:F3:5D:FC:E8:E9",
+      "4C:19:F6:A8:8A:46:03:9C:4C:6C:FB:80:02:6B:F8:57:AB:82:CE:7B:3E:0D:90:25:E3:44:8A:96:37:0F:F9:D9"
+    ]
+  }
+}]
